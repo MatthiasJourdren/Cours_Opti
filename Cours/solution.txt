@@ -1,0 +1,1194 @@
+gurobipy: Solutions
+Xavier Nodet
+xavier.nodet@gurobi.com
+October 2025 - 3883360
+Table des matières
+1. Knapsack
+2. Portfolio Optimization
+3. Lot-Sizing
+4. Bucket Design with Fixed Surface
+5. Termination Criteria
+6. Unit Commitment Problem
+7. Unit Commitment Problem (matrix API)
+8. Robotic Arm
+1. Knapsack
+import numpy as np
+import gurobipy as gp
+from gurobipy import GRB
+
+def generate_knapsack(num_items):
+    # Fix seed value
+    rng = np.random.default_rng(seed=0)
+    # Item values, weights
+    values = rng.uniform(low=1, high=25, size=num_items)
+    weights = rng.uniform(low=5, high=100, size=num_items)
+    # Knapsack capacity
+    capacity = 0.7 * weights.sum()
+
+    return values, weights, capacity
+
+
+def solve_knapsack_model(values, weights, capacity):
+    num_items = len(values)
+    # Turn values and weights numpy arrays to dict
+    values_dict = {i: value for i, value in enumerate(values)}
+    weights_dict = {i: weight for i, weight in enumerate(weights)}
+
+    with gp.Env() as env:
+        with gp.Model(name="knapsack", env=env) as model:
+            # Define decision variables using the Model.addVars() method
+            x = model.addVars(num_items, vtype=GRB.BINARY, name="x")
+
+            # Define objective function using the Model.setObjective() method
+            # Build the LinExpr using the tupledict.prod() method
+            model.setObjective(x.prod(values_dict), sense=GRB.MAXIMIZE)
+
+            # Define capacity constraint using the Model.addConstr() method
+            model.addConstr(x.prod(weights_dict) <= capacity, name="knapsack_capacity")
+
+            model.optimize()
+
+data = generate_knapsack(10000)
+solve_knapsack_model(*data)
+Here is the log of the execution of this program:
+
+Gurobi Optimizer version 12.0.3 build v12.0.3rc0 (mac64[arm] - Darwin 24.6.0 24G231)
+
+CPU model: Apple M4 Pro
+Thread count: 12 physical cores, 12 logical processors, using up to 12 threads
+
+Optimize a model with 1 rows, 10000 columns and 10000 nonzeros
+Model fingerprint: 0xa2a6b3bf
+Variable types: 0 continuous, 10000 integer (10000 binary)
+Coefficient statistics:
+  Matrix range     [5e+00, 1e+02]
+  Objective range  [1e+00, 2e+01]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [4e+05, 4e+05]
+Found heuristic solution: objective 90594.480679
+Presolve time: 0.01s
+Presolved: 1 rows, 10000 columns, 10000 nonzeros
+Variable types: 0 continuous, 10000 integer (10000 binary)
+
+Root relaxation: objective 1.190206e+05, 1 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0 119020.617    0    1 90594.4807 119020.617  31.4%     -    0s
+H    0     0                    119005.88462 119020.617  0.01%     -    0s
+H    0     0                    119015.22254 119020.617  0.00%     -    0s
+
+Explored 1 nodes (1 simplex iterations) in 0.02 seconds (0.02 work units)
+Thread count was 12 (of 12 available processors)
+
+Solution count 3: 119015 119006 90594.5 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 1.190152225370e+05, best bound 1.190206174693e+05, gap 0.0045%
+2. Portfolio Optimization
+import json
+import pandas as pd
+import numpy as np
+import gurobipy as gp
+from gurobipy import GRB
+
+with open("data/portfolio-example.json", "r") as f:
+    data = json.load(f)
+
+n = data["num_assets"]
+sigma = np.array(data["covariance"])
+mu = np.array(data["expected_return"])
+mu_0 = data["target_return"]
+k = data["portfolio_max_size"]
+
+
+with gp.Model("portfolio") as model:
+    x = model.addVars(n, ub=1, name="x")
+    y = model.addVars(n, vtype=GRB.BINARY, name="y")
+
+    risk = gp.quicksum(x[i] * sigma[i, j] * x[j] for i in range(n) for j in range(n))
+    model.setObjective(risk)
+
+    expected_return = gp.quicksum(mu[i] * x[i] for i in range(n))
+    model.addConstr(expected_return >= mu_0, name="return")
+
+    model.addConstr(x.sum() == 1, name="budget")
+
+    model.addConstr(y.sum() <= k, name="cardinality")
+
+    model.addConstrs((x[i] <= y[i] for i in range(n)), name="is_allocated")
+
+    model.optimize()
+
+    # Write the solution into a DataFrame
+    portfolio = [var.X for var in model.getVars() if "x" in var.VarName]
+    risk = model.ObjVal
+    expected_return = model.getRow(model.getConstrByName("return")).getValue()
+    df = pd.DataFrame(
+        data=portfolio + [risk, expected_return],
+        index=[f"asset_{i}" for i in range(n)] + ["risk", "return"],
+        columns=["Portfolio"],
+    )
+    print(df)
+Here is the log of the execution of this program:
+
+Gurobi Optimizer version 12.0.3 build v12.0.3rc0 (mac64[arm] - Darwin 24.6.0 24G231)
+
+CPU model: Apple M4 Pro
+Thread count: 12 physical cores, 12 logical processors, using up to 12 threads
+
+Optimize a model with 23 rows, 40 columns and 100 nonzeros
+Model fingerprint: 0x755216b2
+Model has 210 quadratic objective terms
+Variable types: 20 continuous, 20 integer (20 binary)
+Coefficient statistics:
+  Matrix range     [1e-04, 1e+00]
+  Objective range  [0e+00, 0e+00]
+  QObjective range [7e-06, 4e-03]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [1e-04, 2e+01]
+Found heuristic solution: objective 0.0000960
+Presolve time: 0.00s
+Presolved: 23 rows, 40 columns, 100 nonzeros
+Presolved model has 210 quadratic objective terms
+Variable types: 20 continuous, 20 integer (20 binary)
+
+Root relaxation: objective 6.741224e-05, 38 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    0.00007    0   11    0.00010    0.00007  29.8%     -    0s
+H    0     0                       0.0000674    0.00007  0.00%     -    0s
+     0     0    0.00007    0   11    0.00007    0.00007  0.00%     -    0s
+
+Explored 1 nodes (38 simplex iterations) in 0.00 seconds (0.00 work units)
+Thread count was 12 (of 12 available processors)
+
+Solution count 2: 6.74122e-05 9.60284e-05 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 6.741224163915e-05, best bound 6.741224163915e-05, gap 0.0000%
+          Portfolio
+asset_0    0.000000
+asset_1    0.000000
+asset_2    0.000000
+asset_3    0.000000
+asset_4    0.006812
+asset_5    0.034594
+asset_6    0.000000
+asset_7    0.000000
+asset_8    0.409840
+asset_9    0.026759
+asset_10   0.000000
+asset_11   0.027722
+asset_12   0.039911
+asset_13   0.030221
+asset_14   0.038511
+asset_15   0.000000
+asset_16   0.184718
+asset_17   0.000000
+asset_18   0.126673
+asset_19   0.074241
+risk       0.000067
+return     0.000104
+3. Lot-Sizing
+import json
+import gurobipy as gp
+from gurobipy import GRB
+from pathlib import Path
+
+# ----- Load data from JSON -----
+with open("data/lot_sizing_data.json", "r") as f:
+    data = json.load(f)
+
+name = data["name"]
+H    = int(data["H"])
+d    = [float(val) for val in data["demand"]]
+c    = [float(val) for val in data["var_cost"]]
+f    = [float(val) for val in data["setup_cost"]]
+h    = [float(val) for val in data["hold_cost"]]
+Qmin = float(data["Qmin"])
+Qmax = float(data["Qmax"])
+I0   = float(data["I0"])
+
+# Basic validation
+assert len(d) == H and len(c) == H and len(f) == H and len(h) == H
+assert 0 <= Qmin <= Qmax
+
+# ----- Build model -----
+with gp.Env() as env, gp.Model(name, env=env) as model:
+    # Decision variables
+    x = model.addVars(H, name="x")                       # production qty
+    y = model.addVars(H, vtype=GRB.BINARY, name="y")     # setup
+    I = model.addVars(H, name="I")                       # inventory
+
+    # Objective: production + setup + holding
+    model.setObjective(
+        gp.quicksum(c[t]*x[t] + f[t]*y[t] + h[t]*I[t] for t in range(H)),
+        GRB.MINIMIZE
+    )
+
+    # Inventory balance
+    for t in range(H):
+        prev_I = I0 if t == 0 else I[t-1]
+        model.addConstr(prev_I + x[t] - d[t] == I[t], name=f"balance[{t}]")
+
+    # Batch min/max linking
+    for t in range(H):
+        model.addConstr(x[t] <= Qmax * y[t], name=f"cap[{t}]")
+        model.addConstr(x[t] >= Qmin * y[t], name=f"minbatch[{t}]")
+
+    # Optimize
+    model.optimize()
+
+    if model.SolCount:
+        assert model.ObjVal == 1198.5
+        print(f"Total cost = {model.ObjVal:.2f}")
+        for t in range(H):
+            print(f"t={t:2d}: y={int(y[t].X)} x={x[t].X:.1f} I={I[t].X:.1f}")
+Here is the log of the execution of this program:
+
+Gurobi Optimizer version 12.0.3 build v12.0.3rc0 (mac64[arm] - Darwin 24.6.0 24G231)
+
+CPU model: Apple M4 Pro
+Thread count: 12 physical cores, 12 logical processors, using up to 12 threads
+
+Optimize a model with 156 rows, 156 columns and 363 nonzeros
+Model fingerprint: 0x9275eb5f
+Variable types: 104 continuous, 52 integer (52 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 2e+01]
+  Objective range  [5e-01, 1e+01]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [6e+00, 2e+01]
+Found heuristic solution: objective 1356.0000000
+Presolve removed 105 rows and 54 columns
+Presolve time: 0.00s
+Presolved: 51 rows, 102 columns, 153 nonzeros
+Variable types: 51 continuous, 51 integer (51 binary)
+
+Root relaxation: objective 1.077833e+03, 63 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0 1077.83333    0   49 1356.00000 1077.83333  20.5%     -    0s
+H    0     0                    1336.0000000 1077.83333  19.3%     -    0s
+H    0     0                    1231.0000000 1077.83333  12.4%     -    0s
+H    0     0                    1213.5000000 1077.83333  11.2%     -    0s
+     0     0 1162.92020    0   45 1213.50000 1162.92020  4.17%     -    0s
+     0     0 1164.39291    0   42 1213.50000 1164.39291  4.05%     -    0s
+H    0     0                    1211.0000000 1164.39291  3.85%     -    0s
+H    0     0                    1205.5000000 1188.34931  1.42%     -    0s
+     0     0 1188.34931    0   41 1205.50000 1188.34931  1.42%     -    0s
+     0     0 1189.10059    0   43 1205.50000 1189.10059  1.36%     -    0s
+     0     0 1189.78862    0   44 1205.50000 1189.78862  1.30%     -    0s
+     0     0 1193.83938    0   25 1205.50000 1193.83938  0.97%     -    0s
+     0     0 1194.24540    0   25 1205.50000 1194.24540  0.93%     -    0s
+     0     0 1194.25902    0   26 1205.50000 1194.25902  0.93%     -    0s
+     0     0 1196.10819    0   28 1205.50000 1196.10819  0.78%     -    0s
+     0     0 1196.59203    0   22 1205.50000 1196.59203  0.74%     -    0s
+     0     0 1196.62939    0   23 1205.50000 1196.62939  0.74%     -    0s
+     0     0 1197.77500    0   12 1205.50000 1197.77500  0.64%     -    0s
+H    0     0                    1203.5000000 1197.80117  0.47%     -    0s
+     0     0 1197.84207    0   13 1203.50000 1197.84207  0.47%     -    0s
+     0     0 1198.00000    0    9 1203.50000 1198.00000  0.46%     -    0s
+     0     0 1198.06250    0    7 1203.50000 1198.06250  0.45%     -    0s
+H    0     0                    1203.0000000 1198.06250  0.41%     -    0s
+     0     0 1198.19375    0   22 1203.00000 1198.19375  0.40%     -    0s
+     0     0 1198.24414    0   22 1203.00000 1198.24414  0.40%     -    0s
+*    0     0               0    1198.5000000 1198.50000  0.00%     -    0s
+
+Cutting planes:
+  Gomory: 2
+  Implied bound: 11
+  Clique: 1
+  MIR: 77
+  RLT: 1
+  Relax-and-lift: 1
+
+Explored 1 nodes (284 simplex iterations) in 0.02 seconds (0.01 work units)
+Thread count was 12 (of 12 available processors)
+
+Solution count 8: 1198.5 1203 1203.5 ... 1356
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 1.198500000000e+03, best bound 1.198500000000e+03, gap 0.0000%
+Total cost = 1198.50
+t= 0: y=1 x=12.0 I=6.0
+t= 1: y=0 x=0.0 I=0.0
+t= 2: y=1 x=12.0 I=6.0
+t= 3: y=0 x=0.0 I=0.0
+t= 4: y=1 x=12.0 I=6.0
+t= 5: y=0 x=0.0 I=0.0
+t= 6: y=1 x=12.0 I=6.0
+t= 7: y=0 x=0.0 I=0.0
+t= 8: y=1 x=12.0 I=6.0
+t= 9: y=0 x=0.0 I=0.0
+t=10: y=1 x=12.0 I=6.0
+t=11: y=0 x=0.0 I=0.0
+t=12: y=1 x=12.0 I=6.0
+t=13: y=0 x=0.0 I=0.0
+t=14: y=1 x=12.0 I=6.0
+t=15: y=0 x=0.0 I=0.0
+t=16: y=1 x=12.0 I=6.0
+t=17: y=0 x=0.0 I=0.0
+t=18: y=1 x=12.0 I=6.0
+t=19: y=0 x=0.0 I=0.0
+t=20: y=1 x=12.0 I=6.0
+t=21: y=0 x=0.0 I=0.0
+t=22: y=1 x=11.0 I=0.0
+t=23: y=1 x=11.0 I=0.0
+t=24: y=1 x=11.0 I=0.0
+t=25: y=1 x=11.0 I=0.0
+t=26: y=1 x=11.0 I=0.0
+t=27: y=1 x=11.0 I=0.0
+t=28: y=1 x=11.0 I=0.0
+t=29: y=1 x=11.0 I=0.0
+t=30: y=1 x=11.0 I=0.0
+t=31: y=1 x=11.0 I=0.0
+t=32: y=1 x=11.0 I=0.0
+t=33: y=1 x=13.0 I=2.0
+t=34: y=1 x=15.0 I=6.0
+t=35: y=0 x=0.0 I=0.0
+t=36: y=1 x=12.0 I=6.0
+t=37: y=0 x=0.0 I=0.0
+t=38: y=1 x=12.0 I=6.0
+t=39: y=0 x=0.0 I=0.0
+t=40: y=1 x=12.0 I=6.0
+t=41: y=0 x=0.0 I=0.0
+t=42: y=1 x=12.0 I=6.0
+t=43: y=0 x=0.0 I=0.0
+t=44: y=1 x=12.0 I=6.0
+t=45: y=0 x=0.0 I=0.0
+t=46: y=1 x=15.0 I=9.0
+t=47: y=1 x=15.0 I=2.0
+t=48: y=1 x=15.0 I=9.0
+t=49: y=0 x=0.0 I=1.0
+t=50: y=1 x=15.0 I=8.0
+t=51: y=0 x=0.0 I=0.0
+4. Bucket Design with Fixed Surface
+import math
+import gurobipy as gp
+from gurobipy import GRB
+from gurobipy import nlfunc
+
+with gp.Env() as env, gp.Model(env=env) as model:
+
+    r = model.addVar(name="r", ub=1)
+    h = model.addVar(name="h", ub=1)
+    R = model.addVar(name="R", ub=1)
+    S = model.addVar(name="S", lb=1, ub=1)
+    V = model.addVar(name="V")
+
+    model.setObjective(V, GRB.MAXIMIZE)
+    model.addConstr(S ==
+        math.pi * r**2 +
+        math.pi * (R + r) * nlfunc.sqrt((R - r)**2 + h**2)
+    )
+    model.addConstr(V ==
+        math.pi * h / 3 * (R**2 + R*r + r**2)
+    )
+
+    model.optimize()
+    assert model.status == GRB.OPTIMAL
+    print(f"r = {r.X}, h = {h.X}, R={R.X}")
+Here is the log of the execution of this program:
+
+Gurobi Optimizer version 12.0.3 build v12.0.3rc0 (mac64[arm] - Darwin 24.6.0 24G231)
+
+CPU model: Apple M4 Pro
+Thread count: 12 physical cores, 12 logical processors, using up to 12 threads
+
+Optimize a model with 0 rows, 5 columns and 0 nonzeros
+Model fingerprint: 0x5ed4b3ea
+Model has 2 general nonlinear constraints (12 nonlinear terms)
+Variable types: 5 continuous, 0 integer (0 binary)
+Coefficient statistics:
+  Matrix range     [0e+00, 0e+00]
+  Objective range  [1e+00, 1e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [0e+00, 0e+00]
+Presolve model has 2 nlconstr
+Added 12 variables to disaggregate expressions.
+Presolve time: 0.00s
+Presolved: 33 rows, 18 columns, 70 nonzeros
+Presolved model has 6 bilinear constraint(s)
+Presolved model has 1 nonlinear constraint(s)
+
+Solving non-convex MINLP
+
+Variable types: 18 continuous, 0 integer (0 binary)
+Found heuristic solution: objective 0.1233931
+
+Root relaxation: objective 1.467570e+00, 9 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    1.46757    0    7    0.12339    1.46757  1089%     -    0s
+     0     0    1.33187    0    7    0.12339    1.33187   979%     -    0s
+     0     0    1.33113    0    7    0.12339    1.33113   979%     -    0s
+     0     0    1.32960    0    7    0.12339    1.32960   978%     -    0s
+     0     0    1.32955    0    7    0.12339    1.32955   977%     -    0s
+     0     0    0.81001    0    7    0.12339    0.81001   556%     -    0s
+     0     2    0.81001    0    7    0.12339    0.81001   556%     -    0s
+*  792    11              25       0.1233943    0.12345  0.04%   2.5    0s
+
+Cutting planes:
+  RLT: 1
+  PSD: 2
+
+Explored 893 nodes (2266 simplex iterations) in 0.03 seconds (0.01 work units)
+Thread count was 12 (of 12 available processors)
+
+Solution count 2: 0.123394 0.123393 
+
+Optimal solution found (tolerance 1.00e-04)
+Warning: max constraint violation (8.8686e-06) exceeds tolerance
+Warning: max general constraint violation (8.8686e-06) exceeds tolerance
+Best objective 1.233942859475e-01, best bound 1.234062171573e-01, gap 0.0097%
+r = 0.22765600953496343, h = 0.3695108064934501, R=0.41533979436474494
+5. Termination Criteria
+from functools import partial
+
+import gurobipy as gp
+from gurobipy import GRB
+
+
+class CallbackData:
+    def __init__(self):
+        self.last_gap_change_time = -GRB.INFINITY
+        self.last_gap = GRB.INFINITY
+
+
+def callback(model, where, *, cbdata):
+    if where != GRB.Callback.MIP:
+        return
+    if model.cbGet(GRB.Callback.MIP_SOLCNT) == 0:
+        return
+
+    best = model.cbGet(GRB.Callback.MIP_OBJBST)
+    bound = model.cbGet(GRB.Callback.MIP_OBJBND)
+    gap = abs((bound - best) / best)
+    time = model.cbGet(GRB.Callback.RUNTIME)
+    if gap < cbdata.last_gap - epsilon_to_compare_gap:
+        # The gap has decreased, store new gap and reset the time
+        cbdata.last_gap = gap
+        cbdata.last_gap_change_time = time
+        print(f"Storing new gap: {gap}, {time}")
+        return
+
+    if time - cbdata.last_gap_change_time > max_time_between_gap_updates:
+        # No change since too long
+        print("It's been too long...")
+        model.terminate()
+
+
+with gp.read("data/mkp.mps.bz2") as model:
+    # Global variables used in the callback function
+    max_time_between_gap_updates = 15
+    epsilon_to_compare_gap = 1e-4
+
+    # Initialize data passed to the callback function
+    callback_data = CallbackData()
+    callback_func = partial(callback, cbdata=callback_data)
+
+    model.optimize(callback_func)
+Here is the log of the execution of this program:
+
+Read MPS format model from file data/mkp.mps.bz2
+Reading time = 0.04 seconds
+mkp_bip: 30 rows, 500 columns, 15000 nonzeros
+Gurobi Optimizer version 12.0.3 build v12.0.3rc0 (mac64[arm] - Darwin 24.6.0 24G231)
+
+CPU model: Apple M4 Pro
+Thread count: 12 physical cores, 12 logical processors, using up to 12 threads
+
+Optimize a model with 30 rows, 500 columns and 15000 nonzeros
+Model fingerprint: 0xcbe37219
+Variable types: 0 continuous, 500 integer (500 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+03]
+  Objective range  [4e+02, 1e+03]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [1e+05, 1e+05]
+Found heuristic solution: objective 177106.00000
+Presolve time: 0.01s
+Presolved: 30 rows, 500 columns, 15000 nonzeros
+Variable types: 0 continuous, 500 integer (500 binary)
+Storing new gap: 1.0921143270132012, 0.011793136596679688
+
+Root relaxation: objective 2.164011e+05, 112 iterations, 0.00 seconds (0.01 work units)
+Storing new gap: 0.22187277675516356, 0.013677120208740234
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0 216401.065    0   25 177106.000 216401.065  22.2%     -    0s
+H    0     0                    209908.00000 216401.065  3.09%     -    0s
+H    0     0                    213709.00000 216401.065  1.26%     -    0s
+H    0     0                    215225.00000 216401.065  0.55%     -    0s
+H    0     0                    215436.00000 216401.065  0.45%     -    0s
+H    0     0                    215510.00000 216401.065  0.41%     -    0s
+H    0     0                    215624.00000 216401.065  0.36%     -    0s
+Storing new gap: 0.0035756687567246688, 0.0763850212097168
+     0     0 216395.201    0   25 215624.000 216395.201  0.36%     -    0s
+     0     2 216395.201    0   25 215624.000 216395.201  0.36%     -    0s
+H  295   300                    215695.00000 216392.242  0.32%   9.9    0s
+Storing new gap: 0.0032314147291314125, 0.1913139820098877
+H  813   824                    215739.00000 216392.242  0.30%   8.9    0s
+Storing new gap: 0.003026805538173441, 0.2881801128387451
+H 3088  3002                    215787.00000 216387.943  0.28%   7.1    0s
+Storing new gap: 0.0027848894130101665, 0.358551025390625
+H23611 17974                    215834.00000 216367.932  0.25%   8.6    1s
+Storing new gap: 0.002473808801915293, 1.6188960075378418
+ 113724 72141 216302.178   46   24 215834.000 216352.119  0.24%   8.4    5s
+H126308 78287                    215871.00000 216350.563  0.22%   8.5    5s
+Storing new gap: 0.002218917779599854, 5.349800109863281
+ 308892 238152 216165.151   66   27 215871.000 216336.473  0.22%   8.9   10s
+ 511743 413112 216126.800   59   26 215871.000 216329.552  0.21%   9.0   15s
+Storing new gap: 0.002117005063209046, 15.74566102027893
+ 699199 573956 216300.283   48   25 215871.000 216325.527  0.21%   9.2   20s
+ 887672 734921 216097.879   56   27 215871.000 216322.259  0.21%   9.4   25s
+ 1069400 889836 216127.110   58   26 215871.000 216319.687  0.21%   9.4   30s
+It's been too long...
+
+Cutting planes:
+  Gomory: 7
+
+Explored 1099227 nodes (10377571 simplex iterations) in 30.75 seconds (113.07 work units)
+Thread count was 12 (of 12 available processors)
+
+Solution count 10: 215871 215834 215787 ... 213709
+
+Solve interrupted
+Best objective 2.158710000000e+05, best bound 2.163190000000e+05, gap 0.2075%
+
+User-callback calls 2201101, time in user-callback 1.58 sec
+6. Unit Commitment Problem
+import gurobipy as gp
+from gurobipy import GRB
+
+
+# 24 Hour Load Forecast (MW)
+load_forecast = [
+     4,  4,  4,  4,  4,  4,   6,   6,
+    12, 12, 12, 12, 12,  4,   4,   4,
+     4, 16, 16, 16, 16,  6.5, 6.5, 6.5,
+]
+
+# solar energy forecast (MW)
+solar_forecast = [
+    0,   0,   0,   0,   0,   0,   0.5, 1.0,
+    1.5, 2.0, 2.5, 3.5, 3.5, 2.5, 2.0, 1.5,
+    1.0, 0.5, 0,   0,   0,   0,   0,   0,
+]
+
+# global number of time intervals
+nTimeIntervals = len(load_forecast)
+
+# thermal units
+thermal_units = ["gen1", "gen2", "gen3"]
+
+# thermal units' costs  (a + b*p + c*p^2), (startup and shutdown costs)
+thermal_units_cost, a, b, c, sup_cost, sdn_cost = gp.multidict(
+    {
+        "gen1": [5.0, 0.5, 1.0, 2, 1],
+        "gen2": [5.0, 0.5, 0.5, 2, 1],
+        "gen3": [5.0, 3.0, 2.0, 2, 1],
+    }
+)
+
+# thernal units operating limits
+thermal_units_limits, pmin, pmax = gp.multidict(
+    {"gen1": [1.5, 5.0], "gen2": [2.5, 10.0], "gen3": [1.0, 3.0]}
+)
+
+# thermal units dynamic data (initial commitment status)
+thermal_units_dyn_data, init_status = gp.multidict(
+    {"gen1": [0], "gen2": [0], "gen3": [0]}
+)
+
+
+def show_results():
+    obj_val_s = model.ObjVal
+    print(f" OverAll Cost = {round(obj_val_s, 2)}	")
+    print("\n")
+    print("%5s" % "time", end=" ")
+    for t in range(nTimeIntervals):
+        print("%4s" % t, end=" ")
+    print("\n")
+
+    for g in thermal_units:
+        print("%5s" % g, end=" ")
+        for t in range(nTimeIntervals):
+            print("%4.1f" % thermal_units_out_power[g, t].X, end=" ")
+        print("\n")
+
+    print("%5s" % "Solar", end=" ")
+    for t in range(nTimeIntervals):
+        print("%4.1f" % solar_forecast[t], end=" ")
+    print("\n")
+
+    print("%5s" % "Load", end=" ")
+    for t in range(nTimeIntervals):
+        print("%4.1f" % load_forecast[t], end=" ")
+    print("\n")
+
+
+with gp.Env() as env, gp.Model(env=env) as model:
+
+    # add variables for thermal units (power and statuses for commitment, startup and shutdown)
+    thermal_units_out_power = model.addVars(
+        thermal_units, range(nTimeIntervals), name="thermal_units_out_power"
+    )
+    thermal_units_startup_status = model.addVars(
+        thermal_units,
+        range(nTimeIntervals),
+        vtype=GRB.BINARY,
+        name="thermal_unit_startup_status",
+    )
+    thermal_units_shutdown_status = model.addVars(
+        thermal_units,
+        range(nTimeIntervals),
+        vtype=GRB.BINARY,
+        name="thermal_unit_shutdown_status",
+    )
+    thermal_units_comm_status = model.addVars(
+        thermal_units, range(nTimeIntervals), vtype=GRB.BINARY, name="thermal_unit_comm_status"
+    )
+
+    # define objective function as an empty quadratic construct and add terms
+    obj_fun_expr = gp.QuadExpr(0)
+    for t in range(nTimeIntervals):
+        for g in thermal_units:
+            obj_fun_expr.add(
+                a[g] * thermal_units_comm_status[g, t]
+                + b[g] * thermal_units_out_power[g, t]
+                + c[g] * thermal_units_out_power[g, t] * thermal_units_out_power[g, t]
+                + sup_cost[g] * thermal_units_startup_status[g, t]
+                + sdn_cost[g] * thermal_units_shutdown_status[g, t]
+            )
+    model.setObjective(obj_fun_expr)
+
+    # Power balance equations
+    for t in range(nTimeIntervals):
+        model.addConstr(
+            gp.quicksum(thermal_units_out_power[g, t] for g in thermal_units)
+            == load_forecast[t] - solar_forecast[t],
+            name="power_balance_" + str(t),
+        )
+
+    # Thermal units logical constraints
+    for t in range(nTimeIntervals):
+        for g in thermal_units:
+            if t == 0:
+                model.addConstr(
+                    thermal_units_comm_status[g, t] - init_status[g]
+                    == thermal_units_startup_status[g, t]
+                    - thermal_units_shutdown_status[g, t],
+                    name="logical1_" + g + "_" + str(t),
+                )
+            else:
+                model.addConstr(
+                    thermal_units_comm_status[g, t]
+                    - thermal_units_comm_status[g, t - 1]
+                    == thermal_units_startup_status[g, t]
+                    - thermal_units_shutdown_status[g, t],
+                    name="logical1_" + g + "_" + str(t),
+                )
+
+            model.addConstr(
+                thermal_units_startup_status[g, t] + thermal_units_shutdown_status[g, t]
+                <= 1,
+                name="logical2_" + g + "_" + str(t),
+            )
+
+    # Thermal units physical constraints, using indicator constraints
+    for t in range(nTimeIntervals):
+        for g in thermal_units:
+            model.addConstr(
+                (thermal_units_comm_status[g, t] == 1) >>
+                (thermal_units_out_power[g, t] >= pmin[g])
+            )
+            model.addConstr(
+                (thermal_units_comm_status[g, t] == 1) >>
+                (thermal_units_out_power[g, t] <= pmax[g])
+            )
+            model.addConstr(
+                (thermal_units_comm_status[g, t] == 0) >>
+                (thermal_units_out_power[g, t] == 0.0)
+            )
+
+    model.optimize()
+    show_results()
+Here is the log of the execution of this program:
+
+Gurobi Optimizer version 12.0.3 build v12.0.3rc0 (mac64[arm] - Darwin 24.6.0 24G231)
+
+CPU model: Apple M4 Pro
+Thread count: 12 physical cores, 12 logical processors, using up to 12 threads
+
+Optimize a model with 168 rows, 288 columns and 501 nonzeros
+Model fingerprint: 0xa1375406
+Model has 72 quadratic objective terms
+Model has 216 simple general constraints
+  216 INDICATOR
+Variable types: 72 continuous, 216 integer (216 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [5e-01, 5e+00]
+  QObjective range [1e+00, 4e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [1e+00, 2e+01]
+  GenCon rhs range [1e+00, 1e+01]
+  GenCon coe range [1e+00, 1e+00]
+Presolve added 1 rows and 0 columns
+Presolve removed 0 rows and 125 columns
+Presolve time: 0.01s
+Presolved: 185 rows, 171 columns, 473 nonzeros
+Presolved model has 43 quadratic objective terms
+Variable types: 51 continuous, 120 integer (120 binary)
+Found heuristic solution: objective 1007.6964286
+Found heuristic solution: objective 907.5714286
+
+Root relaxation: objective 8.586741e+02, 287 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0  858.67410    0   44  907.57143  858.67410  5.39%     -    0s
+H    0     0                     894.0714286  858.67410  3.96%     -    0s
+H    0     0                     888.7380952  858.67410  3.38%     -    0s
+H    0     0                     887.9047619  858.67410  3.29%     -    0s
+     0     0  861.09989    0   48  887.90476  861.09989  3.02%     -    0s
+     0     0  861.09989    0   35  887.90476  861.09989  3.02%     -    0s
+     0     0  865.42295    0   37  887.90476  865.42295  2.53%     -    0s
+     0     0  866.16295    0   37  887.90476  866.16295  2.45%     -    0s
+     0     0  868.53847    0   41  887.90476  868.53847  2.18%     -    0s
+     0     0  869.53572    0   42  887.90476  869.53572  2.07%     -    0s
+     0     0  871.70239    0   42  887.90476  871.70239  1.82%     -    0s
+     0     0  871.70239    0   44  887.90476  871.70239  1.82%     -    0s
+     0     0  871.70239    0   44  887.90476  871.70239  1.82%     -    0s
+     0     0  871.70239    0   44  887.90476  871.70239  1.82%     -    0s
+     0     0  871.70239    0   44  887.90476  871.70239  1.82%     -    0s
+     0     0  871.70239    0   46  887.90476  871.70239  1.82%     -    0s
+     0     2  871.70239    0   46  887.90476  871.70239  1.82%     -    0s
+
+Cutting planes:
+  Cover: 2
+  Implied bound: 1
+  Clique: 1
+  MIR: 1
+  Flow cover: 7
+
+Explored 55 nodes (1028 simplex iterations) in 0.04 seconds (0.03 work units)
+Thread count was 12 (of 12 available processors)
+
+Solution count 5: 887.905 888.738 894.071 ... 1007.7
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 8.879047619048e+02, best bound 8.879047619048e+02, gap 0.0000%
+ OverAll Cost = 887.9	
+
+
+ time    0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   20   21   22   23 
+
+ gen1  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  3.5  3.3  3.2  2.8  2.8  1.5  2.0  0.0  0.0  4.6  4.8  4.8  4.8  2.2  2.2  2.2 
+
+ gen2  4.0  4.0  4.0  4.0  4.0  4.0  5.5  5.0  7.0  6.7  6.3  5.7  5.7  0.0  0.0  2.5  3.0  9.2  9.5  9.5  9.5  4.3  4.3  4.3 
+
+ gen3  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  1.7  1.8  1.8  1.8  0.0  0.0  0.0 
+
+Solar  0.0  0.0  0.0  0.0  0.0  0.0  0.5  1.0  1.5  2.0  2.5  3.5  3.5  2.5  2.0  1.5  1.0  0.5  0.0  0.0  0.0  0.0  0.0  0.0 
+
+ Load  4.0  4.0  4.0  4.0  4.0  4.0  6.0  6.0 12.0 12.0 12.0 12.0 12.0  4.0  4.0  4.0  4.0 16.0 16.0 16.0 16.0  6.5  6.5  6.5 
+7. Unit Commitment Problem (matrix API)
+import gurobipy as gp
+from gurobipy import GRB
+
+import numpy as np
+
+
+# 24 Hour Load Forecast (MW)
+load_forecast = [
+     4,  4,  4,  4,  4,  4,   6,   6,
+    12, 12, 12, 12, 12,  4,   4,   4,
+     4, 16, 16, 16, 16,  6.5, 6.5, 6.5,
+]
+
+# solar energy forecast (MW)
+solar_forecast = [
+    0,   0,   0,   0,   0,   0,   0.5, 1.0,
+    1.5, 2.0, 2.5, 3.5, 3.5, 2.5, 2.0, 1.5,
+    1.0, 0.5, 0,   0,   0,   0,   0,   0,
+]
+
+# global number of time intervals
+nTimeIntervals = len(load_forecast)
+
+# thermal units
+thermal_units = ["gen1", "gen2", "gen3"]
+
+# thermal units' costs  (a + b*p + c*p^2), (startup and shutdown costs)
+thermal_units_cost, a, b, c, sup_cost, sdn_cost = gp.multidict(
+    {
+        "gen1": [5.0, 0.5, 1.0, 2, 1],
+        "gen2": [5.0, 0.5, 0.5, 2, 1],
+        "gen3": [5.0, 3.0, 2.0, 2, 1],
+    }
+)
+
+# thernal units operating limits
+thermal_units_limits, pmin, pmax = gp.multidict(
+    {"gen1": [1.5, 5.0], "gen2": [2.5, 10.0], "gen3": [1.0, 3.0]}
+)
+
+# thermal units dynamic data (initial commitment status)
+thermal_units_dyn_data, init_status = gp.multidict(
+    {"gen1": [0], "gen2": [0], "gen3": [0]}
+)
+
+
+# We need np.array instances instead of dict instances to use
+# the matrix API
+def dict_to_array(keys, d):
+    return np.array([d[k] for k in keys])
+
+a = dict_to_array(thermal_units, a)
+b = dict_to_array(thermal_units, b)
+c = dict_to_array(thermal_units, c)
+sup_cost = dict_to_array(thermal_units, sup_cost)
+sdn_cost = dict_to_array(thermal_units, sdn_cost)
+pmin = dict_to_array(thermal_units, pmin)
+pmax = dict_to_array(thermal_units, pmax)
+init_status = dict_to_array(thermal_units, init_status)
+
+# We also need to turn to integer indices instead of strings
+units_to_index = {u: idx for idx, u in enumerate(thermal_units)}
+nb_units = len(thermal_units)
+
+
+def show_results():
+    obj_val_s = model.ObjVal
+    print(f" OverAll Cost = {round(obj_val_s, 2)}	")
+    print("\n")
+    print("%5s" % "time", end=" ")
+    for t in range(nTimeIntervals):
+        print("%4s" % t, end=" ")
+    print("\n")
+
+    for g in thermal_units:
+        print("%5s" % g, end=" ")
+        for t in range(nTimeIntervals):
+            print("%4.1f" % thermal_units_out_power[units_to_index[g], t].X, end=" ")
+        print("\n")
+
+    print("%5s" % "Solar", end=" ")
+    for t in range(nTimeIntervals):
+        print("%4.1f" % solar_forecast[t], end=" ")
+    print("\n")
+
+    print("%5s" % "Load", end=" ")
+    for t in range(nTimeIntervals):
+        print("%4.1f" % load_forecast[t], end=" ")
+    print("\n")
+
+
+with gp.Env() as env, gp.Model(env=env) as model:
+
+    # add variables for thermal units (power and statuses for commitment, startup and shutdown)
+    thermal_units_out_power = model.addMVar(
+        (nb_units, nTimeIntervals), name="thermal_units_out_power"
+    )
+    thermal_units_startup_status = model.addMVar(
+        (nb_units, nTimeIntervals),
+        vtype=GRB.BINARY,
+        name="thermal_unit_startup_status",
+    )
+    thermal_units_shutdown_status = model.addMVar(
+        (nb_units, nTimeIntervals),
+        vtype=GRB.BINARY,
+        name="thermal_unit_shutdown_status",
+    )
+    thermal_units_comm_status = model.addMVar(
+        (nb_units, nTimeIntervals), vtype=GRB.BINARY, name="thermal_unit_comm_status"
+    )
+
+    # define objective function as an empty quadratic construct and add terms
+    model.setObjective((a[:, None] * thermal_units_comm_status).sum() +
+                       (b[:, None] * thermal_units_out_power).sum() +
+                       (c[:, None] * (thermal_units_out_power * thermal_units_out_power)).sum() +
+                       (sup_cost[:, None] * thermal_units_startup_status).sum() +
+                       (sdn_cost[:, None] * thermal_units_shutdown_status).sum())
+
+    # Power balance equations
+    required_power = np.array([l - s for l, s in zip(load_forecast, solar_forecast) ])
+    model.addConstr(
+        thermal_units_out_power.sum(axis=0) == required_power,
+        name="power_balance"
+    )
+
+    # Thermal units logical constraints
+
+    # Initial condition (t = 0)
+    model.addConstr(
+        thermal_units_comm_status[:, 0] - init_status ==
+        thermal_units_startup_status[:, 0] - thermal_units_shutdown_status[:, 0],
+        name="logical1_initial"
+    )
+
+    # Remaining time intervals (t > 0)
+    model.addConstr(
+        thermal_units_comm_status[:, 1:] - thermal_units_comm_status[:, :-1]
+        == thermal_units_startup_status[:, 1:] - thermal_units_shutdown_status[:, 1:],
+        name="logical1_remaining"
+    )
+
+    model.addConstr(
+        thermal_units_startup_status + thermal_units_shutdown_status <= 1,
+        name="logical2"
+    )
+
+    # Thermal units physical constraints, using indicator constraints
+    for g in range(len(thermal_units)):
+        model.addGenConstrIndicator(thermal_units_comm_status[g, :], True,
+                                    thermal_units_out_power[g, :] >= pmin[g],
+                                    name="physical_min")
+        model.addGenConstrIndicator(thermal_units_comm_status[g, :], True,
+                                    thermal_units_out_power[g, :] <= pmax[g],
+                                    name="physical_max")
+        model.addGenConstrIndicator(thermal_units_comm_status[g, :], False,
+                                    thermal_units_out_power[g, :] == 0.0,
+                                    name="physical_off")
+
+    model.optimize()
+    show_results()
+Here is the log of the execution of this program:
+
+Gurobi Optimizer version 12.0.3 build v12.0.3rc0 (mac64[arm] - Darwin 24.6.0 24G231)
+
+CPU model: Apple M4 Pro
+Thread count: 12 physical cores, 12 logical processors, using up to 12 threads
+
+Optimize a model with 168 rows, 288 columns and 501 nonzeros
+Model fingerprint: 0x3b9885a9
+Model has 72 quadratic objective terms
+Model has 216 simple general constraints
+  216 INDICATOR
+Variable types: 72 continuous, 216 integer (216 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [5e-01, 5e+00]
+  QObjective range [1e+00, 4e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [1e+00, 2e+01]
+  GenCon rhs range [1e+00, 1e+01]
+  GenCon coe range [1e+00, 1e+00]
+Presolve added 1 rows and 0 columns
+Presolve removed 0 rows and 125 columns
+Presolve time: 0.01s
+Presolved: 183 rows, 170 columns, 468 nonzeros
+Presolved model has 43 quadratic objective terms
+Variable types: 50 continuous, 120 integer (120 binary)
+Found heuristic solution: objective 972.4464286
+Found heuristic solution: objective 949.4464286
+
+Root relaxation: objective 8.562274e+02, 297 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0  856.22741    0   47  949.44643  856.22741  9.82%     -    0s
+H    0     0                     888.6964286  856.22741  3.65%     -    0s
+H    0     0                     887.9047619  856.22741  3.57%     -    0s
+     0     0  859.55567    0   49  887.90476  859.55567  3.19%     -    0s
+     0     0  859.55567    0   40  887.90476  859.55567  3.19%     -    0s
+     0     0  860.62679    0   43  887.90476  860.62679  3.07%     -    0s
+     0     0  861.04305    0   43  887.90476  861.04305  3.03%     -    0s
+     0     0  863.11702    0   40  887.90476  863.11702  2.79%     -    0s
+     0     0  863.60301    0   40  887.90476  863.60301  2.74%     -    0s
+     0     0  864.38939    0   42  887.90476  864.38939  2.65%     -    0s
+     0     0  865.38905    0   42  887.90476  865.38905  2.54%     -    0s
+     0     0  865.80613    0   42  887.90476  865.80613  2.49%     -    0s
+     0     0  865.80613    0   42  887.90476  865.80613  2.49%     -    0s
+     0     0  865.81082    0   42  887.90476  865.81082  2.49%     -    0s
+     0     2  865.81082    0   42  887.90476  865.81082  2.49%     -    0s
+
+Cutting planes:
+  Learned: 1
+  Cover: 2
+  MIR: 1
+  Flow cover: 2
+
+Explored 162 nodes (1567 simplex iterations) in 0.04 seconds (0.03 work units)
+Thread count was 12 (of 12 available processors)
+
+Solution count 4: 887.905 888.696 949.446 972.446 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 8.879047619048e+02, best bound 8.879021851896e+02, gap 0.0003%
+ OverAll Cost = 887.9	
+
+
+ time    0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   20   21   22   23 
+
+ gen1  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  3.5  3.3  3.2  2.8  2.8  1.5  2.0  0.0  0.0  4.6  4.8  4.8  4.8  2.2  2.2  2.2 
+
+ gen2  4.0  4.0  4.0  4.0  4.0  4.0  5.5  5.0  7.0  6.7  6.3  5.7  5.7  0.0  0.0  2.5  3.0  9.2  9.5  9.5  9.5  4.3  4.3  4.3 
+
+ gen3  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  1.7  1.8  1.8  1.8  0.0  0.0  0.0 
+
+Solar  0.0  0.0  0.0  0.0  0.0  0.0  0.5  1.0  1.5  2.0  2.5  3.5  3.5  2.5  2.0  1.5  1.0  0.5  0.0  0.0  0.0  0.0  0.0  0.0 
+
+ Load  4.0  4.0  4.0  4.0  4.0  4.0  6.0  6.0 12.0 12.0 12.0 12.0 12.0  4.0  4.0  4.0  4.0 16.0 16.0 16.0 16.0  6.5  6.5  6.5 
+8. Robotic Arm
+import math
+import gurobipy as gp
+from gurobipy import GRB, nlfunc as nl
+
+
+# Parameters
+L1, L2 = 1.0, 0.8             # Lengths of the links
+x_star, y_star = 1.20, 0.60   # Point to reach
+xo, yo, r = 0.50, 0.00, 0.20  # Disk to avoid
+
+# Joint limits
+theta1_min, theta1_max = -math.pi, math.pi
+theta2_min, theta2_max = -0.75*math.pi, 0.75*math.pi
+
+
+# Build model
+m = gp.Model("robot_arm_nlfunc")
+
+# Decision variables (angles)
+theta1 = m.addVar(lb=theta1_min, ub=theta1_max, name="theta1")
+theta2 = m.addVar(lb=theta2_min, ub=theta2_max, name="theta2")
+
+# Kinematics variables (end-effector and mid-link point)
+x  = m.addVar(lb=-GRB.INFINITY, name="x")
+y  = m.addVar(lb=-GRB.INFINITY, name="y")
+xm = m.addVar(lb=-GRB.INFINITY, name="xm")
+ym = m.addVar(lb=-GRB.INFINITY, name="ym")
+
+# Nonlinear trig expressions via nlfunc
+# These are NLExpr objects that you can use directly in constraints/objective
+c1  = nl.cos(theta1)
+s1  = nl.sin(theta1)
+th12 = theta1 + theta2
+c12 = nl.cos(th12)
+s12 = nl.sin(th12)
+
+# Forward kinematics using nonlinear expressions
+m.addConstr(x  == L1 * c1  + L2 * c12, name="x_def")
+m.addConstr(y  == L1 * s1  + L2 * s12, name="y_def")
+m.addConstr(xm == 0.5 * L1 * c1,       name="xm_def")
+m.addConstr(ym == 0.5 * L1 * s1,       name="ym_def")
+
+# Obstacle avoidance: keep mid-link outside circle
+m.addQConstr((xm - xo)**2 + (ym - yo)**2 >= r**2, name="mid_outside")
+
+# Objective: reach target
+obj = (x - x_star)**2 + (y - y_star)**2
+m.setObjective(obj, GRB.MINIMIZE)
+
+m.optimize()
+
+sol = None
+if m.Status == GRB.OPTIMAL:
+    sol = {
+        "theta1": theta1.X, "theta2": theta2.X,
+        "x": x.X, "y": y.X, "xm": xm.X, "ym": ym.X,
+        "obj": m.ObjVal,
+    }
+    print("Optimal objective:", m.ObjVal)
+    print(sol)
+else:
+    print("Optimization status:", m.Status)
+
+
+import matplotlib.pyplot as plt
+
+def draw_arm(ax, L1, L2, th1, th2, xo, yo, r, x_star, y_star, title):
+    x1 = L1*math.cos(th1); y1 = L1*math.sin(th1)
+    x2 = x1 + L2*math.cos(th1 + th2); y2 = y1 + L2*math.sin(th1 + th2)
+
+    ax.plot([0, x1], [0, y1], linewidth=3)
+    ax.plot([x1, x2], [y1, y2], linewidth=3)
+    ax.scatter([0, x1, x2], [0, y1, y2], s=40)
+
+    # obstacle
+    t = [i*2*math.pi/300 for i in range(301)]
+    cx = [xo + r*math.cos(tt) for tt in t]
+    cy = [yo + r*math.sin(tt) for tt in t]
+    ax.plot(cx, cy, linewidth=2)
+
+    # target
+    ax.scatter([x_star], [y_star], marker='x', s=80)
+
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_xlim(-0.5, L1+L2+0.2)
+    ax.set_ylim(-0.5, L1+L2+0.2)
+    ax.grid(True, linestyle=':')
+    ax.set_title(title)
+
+if sol is not None:
+    fig, ax = plt.subplots(figsize=(6,6))
+    draw_arm(ax, L1, L2, sol['theta1'], sol['theta2'], xo, yo, r, x_star, y_star,
+             title=f"Robot Arm (nlfunc)\nobj={sol['obj']:.4g}")
+    # Save as PNG instead of showing
+    plt.savefig("images/robot-arm.png", dpi=100, bbox_inches="tight")
+    plt.close(fig)
+else:
+    print("No solution available to plot yet.")
+Here is the log of the execution of this program:
+
+Gurobi Optimizer version 12.0.3 build v12.0.3rc0 (mac64[arm] - Darwin 24.6.0 24G231)
+
+CPU model: Apple M4 Pro
+Thread count: 12 physical cores, 12 logical processors, using up to 12 threads
+
+Optimize a model with 0 rows, 6 columns and 0 nonzeros
+Model fingerprint: 0xbaa4b472
+Model has 2 quadratic objective terms
+Model has 1 quadratic constraint
+Model has 4 general nonlinear constraints (6 nonlinear terms)
+Variable types: 6 continuous, 0 integer (0 binary)
+Coefficient statistics:
+  Matrix range     [0e+00, 0e+00]
+  QMatrix range    [1e+00, 1e+00]
+  QLMatrix range   [1e+00, 1e+00]
+  Objective range  [1e+00, 2e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [2e+00, 3e+00]
+  RHS range        [0e+00, 0e+00]
+  QRHS range       [2e-01, 2e-01]
+Presolve model has 4 nlconstr
+Added 5 variables to disaggregate expressions.
+Presolve time: 0.00s
+Presolved: 40 rows, 14 columns, 84 nonzeros
+Presolved model has 2 quadratic objective terms
+Presolved model has 2 bilinear constraint(s)
+Presolved model has 4 nonlinear constraint(s)
+
+Solving non-convex MINLP
+
+Variable types: 14 continuous, 0 integer (0 binary)
+Found heuristic solution: objective 0.0000000
+
+Explored 1 nodes (0 simplex iterations) in 0.01 seconds (0.00 work units)
+Thread count was 12 (of 12 available processors)
+
+Solution count 1: 4.44089e-16 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 4.440892098501e-16, best bound -1.110223024625e-16, gap 0.0000%
+Optimal objective: 4.440892098500626e-16
+{'theta1': 1.0987946401727178, 'theta2': -1.4706289104806833, 'x': 1.1999999988841443, 'y': 0.5999999958060984, 'xm': 0.22733500860097425, 'ym': 0.44532998311860034, 'obj': 4.440892098500626e-16}
+And here’s a plot of the solution.
+
+robot arm
+Last updated 2025-10-03 13:39:02 +0200
