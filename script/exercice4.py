@@ -5,7 +5,7 @@ import gurobipy as gp
 from gurobipy import GRB
 
 # Chargement des données JSON
-with open("data/data/portfolio-example.json", "r") as f:
+with open("data/portfolio-example.json", "r") as f:
     data = json.load(f)
 
 n = data["num_assets"]
