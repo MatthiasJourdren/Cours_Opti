@@ -12,14 +12,14 @@ theta1_min, theta1_max = -math.pi, math.pi
 theta2_min, theta2_max = -0.75 * math.pi, 0.75 * math.pi
 
 # Velocity limits (rad per step)
-dtheta1_max = 0.25 * math.pi
-dtheta2_max = 0.25 * math.pi
+dtheta1_max = 0.5 * math.pi
+dtheta2_max = 0.5 * math.pi
 
 # Time discretization
-T = 10  # number of time steps
+T = 20  # number of time steps
 
 # Initial joint configuration
-theta1_init, theta2_init = 0.0, 0.0
+theta1_init, theta2_init = 0.45, 0.0   # ~25.8°, évite le disque de rayon 0.2 à (0.5, 0)
 
 # ---- Model ----
 m = gp.Model("robot_arm_trajectory")
@@ -28,6 +28,9 @@ m.Params.NonConvex = 2
 # ---- Variables ----
 theta1 = m.addMVar(T, lb=theta1_min, ub=theta1_max, name="theta1")
 theta2 = m.addMVar(T, lb=theta2_min, ub=theta2_max, name="theta2")
+
+m.addConstr(theta1[0] == theta1_init, name="init_theta1")
+m.addConstr(theta2[0] == theta2_init, name="init_theta2")
 
 # End-effector position at each step
 x = m.addMVar(T, lb=-GRB.INFINITY, name="x")
@@ -77,6 +80,9 @@ if m.Status == GRB.OPTIMAL:
         print(f"{t:3d}  | {theta1[t].X:7.3f} | {theta2[t].X:7.3f} | {x[t].X:5.2f} | {y[t].X:5.2f}")
 else:
     print("Optimization failed:", m.Status)
+    #m.computeIIS()
+    #m.write("sortie_txt/infeasible_model.ilp")
+
 
 # ---- Optional: plot the trajectory ----
 import matplotlib.pyplot as plt

@@ -1,0 +1,20 @@
+\ Model robot_arm_trajectory_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+\ Signature: 0x193a3c06fec985c3
+Minimize
+ 
+Subject To
+ init_theta1: theta1[0] = 0
+ obstacle_0: - xm[0] + [ xm[0] ^2 + ym[0] ^2 ] >= -0.21
+Bounds
+ theta1[0] free
+ xm[0] free
+ ym[0] free
+General Constraints
+\ xm[0] = 0.5 * cos(theta1[0])
+ mid_x_0: xm[0] = NL : ( MULTIPLY , -1 , -1 ) ( CONSTANT , 0.5 , 0 ) 
+  ( COS , -1 , 0 ) ( VARIABLE , theta1[0] , 2 )
+\ ym[0] = 0.5 * sin(theta1[0])
+ mid_y_0: ym[0] = NL : ( MULTIPLY , -1 , -1 ) ( CONSTANT , 0.5 , 0 ) 
+  ( SIN , -1 , 0 ) ( VARIABLE , theta1[0] , 2 )
+End
