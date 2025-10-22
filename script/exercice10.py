@@ -39,7 +39,7 @@ m.addConstr(ym == 0.5*L1*nl.sin(theta1), name="mid_y")
 m.addConstr((xm - xo)**2 + (ym - yo)**2 >= r*r, name="obstacle")
 
 # --- Objective: reach target (minimize squared distance) ---
-m.setObjective(nl.sqr(x - x_star) + nl.sqr(y - y_star), GRB.MINIMIZE)
+m.setObjective((x - x_star)**2 + (y - y_star)**2, GRB.MINIMIZE)
 
 # (Optionnel) point de départ pour accélérer
 theta1.Start = 0.0
