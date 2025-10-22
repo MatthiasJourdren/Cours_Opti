@@ -1,5 +1,3 @@
-# Cours_Opti
-
 # 🧮 Optimization Exercises with Gurobi (Python)
 
 This repository gathers a series of optimization problems implemented in **Python using Gurobi Optimizer**.  
@@ -60,43 +58,39 @@ All scripts were developed and tested under:
 
 ---
 
-## 🧩 Folder Structure
+## 🗂️ Project Structure
 
+```
 Cours/
-│
-├── ...
+│ ├── ...
 │
 project/
-│
-├── ...
+│ ├── ... # (other project-related files)
 │
 script/
-│
-├── exercice1_knapsack.py
-├── exercice4_portfolio.py
-├── exercice5_lot_sizing.py
-├── exercice6_bucket_design.py
-├── exercice7_callback_gap.py
-├── exercice8_unit_commitment.py
-├── exercice9_unit_commitment_matrix.py
-├── exercice10_robot_arm.py
+│ ├── exercice1_knapsack.py # 1. Knapsack problem
+│ ├── exercice4_portfolio.py # 4. Portfolio optimization
+│ ├── exercice5_lot_sizing.py # 5. Multi-period lot-sizing
+│ ├── exercice6_bucket_design.py # 6. Bucket design (nonlinear)
+│ ├── exercice7_callback_gap.py # 7. Custom termination criteria
+│ ├── exercice8_unit_commitment.py # 8. Unit commitment problem
+│ ├── exercice9_unit_commitment_matrix.py # 9. Unit commitment (Matrix API)
+│ ├── exercice10_robot_arm.py # 10. Robotic arm with obstacle avoidance
 │
 data/
-│
-├── portfolio-example.json
-├── lot_sizing_data.json
-├── mkp.mps.bz2
-├── ...
+│ ├── portfolio-example.json
+│ ├── lot_sizing_data.json
+│ ├── mkp.mps.bz2
+│ └── ... # Other input datasets
 │
 images/
-│
-├── bucket_design.png
-├── robot-arm.png
-├── ...
+│ ├── bucket_design.png
+│ ├── robot-arm.png
+│ └── ... # Generated plots or visualizations
 │
 sortie_txt/
+│ ├── infeasible_model.ilp # Example exported model for debugging
+│ └── ... # Other solver outputs
 │
-├── infeasible_model.ilp
-│
-│
-└── README.md
+README.md # Documentation (this file)
+```
