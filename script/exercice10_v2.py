@@ -16,7 +16,7 @@ dtheta1_max = 0.5 * math.pi
 dtheta2_max = 0.5 * math.pi
 
 # Time discretization
-T = 20  # number of time steps
+T = 15  # number of time steps
 
 # Initial joint configuration
 theta1_init, theta2_init = 0.45, 0.0   # ~25.8°, évite le disque de rayon 0.2 à (0.5, 0)
@@ -29,9 +29,6 @@ m.Params.NonConvex = 2
 theta1 = m.addMVar(T, lb=theta1_min, ub=theta1_max, name="theta1")
 theta2 = m.addMVar(T, lb=theta2_min, ub=theta2_max, name="theta2")
 
-m.addConstr(theta1[0] == theta1_init, name="init_theta1")
-m.addConstr(theta2[0] == theta2_init, name="init_theta2")
-
 # End-effector position at each step
 x = m.addMVar(T, lb=-GRB.INFINITY, name="x")
 y = m.addMVar(T, lb=-GRB.INFINITY, name="y")
@@ -41,6 +38,9 @@ xm = m.addMVar(T, lb=-GRB.INFINITY, name="xm")
 ym = m.addMVar(T, lb=-GRB.INFINITY, name="ym")
 
 # ---- Kinematic constraints ----
+m.addConstr(theta1[0] == theta1_init, name="init_theta1")
+m.addConstr(theta2[0] == theta2_init, name="init_theta2")
+
 for t in range(T):
     m.addConstr(x[t] == L1 * nl.cos(theta1[t]) + L2 * nl.cos(theta1[t] + theta2[t]), name=f"kine_x_{t}")
     m.addConstr(y[t] == L1 * nl.sin(theta1[t]) + L2 * nl.sin(theta1[t] + theta2[t]), name=f"kine_y_{t}")
