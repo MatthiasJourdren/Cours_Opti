@@ -93,4 +93,4 @@ if sol is not None:
     plt.savefig("images/robot-arm.png", dpi=100, bbox_inches="tight")
     plt.close(fig)
 else:
-    print("No solution available to plot yet." + "azazrzaf")
+    print("No solution available to plot yet.")
